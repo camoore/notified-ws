@@ -20,7 +20,7 @@ axios.interceptors.response.use(
         error.response.headers["retry-after"]
       );
 
-      console.log(rateLimited)
+      console.log(rateLimited);
       return new Promise(
         (resolve) =>
           setTimeout(() => {
@@ -56,12 +56,16 @@ let notifications = [],
   let events = [];
 
   cron.schedule("*/1 * * * *", async () => {
-    for (const f of events) {
-      console.log(f);
-      
-    }
+    let i = events.length;
+    console.log("Pre Events: ", events);
+    while (i--) {
+      await axios.post(`${process.env.DISCORD_HOOK}`, {
+        content: `${events[i]}`,
+      });
 
-    console.log(contracts)
+      events.splice(i, 1);
+    }
+    console.log("Post Events: ", events);
   });
 
   contracts = notifications.map((notification) => {
@@ -83,10 +87,11 @@ let notifications = [],
         matches.forEach((notification) => {
           if (listPrice < notification.price) {
             console.dir(item, { depth: null });
+            events.push(`${contract}: ${listPrice}`);
           }
         });
 
-        console.log('Found Match: ', contract)
+        console.log("Found Match: ", contract);
       }
     } catch (error) {
       console.log("Got Error");
