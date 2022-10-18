@@ -8,31 +8,6 @@ import cron from "node-cron";
 
 let rateLimited = false;
 
-axios.interceptors.response.use(
-  (response) => {
-    return response;
-  },
-  async (error) => {
-    if (error.response.status === 429) {
-      rateLimited = true;
-      console.log(
-        "Rate limit exceeded, waiting...",
-        error.response.headers["retry-after"]
-      );
-
-      console.log(rateLimited);
-      return new Promise(
-        (resolve) =>
-          setTimeout(() => {
-            rateLimited = false;
-            resolve(error);
-          }),
-        error.response.headers["retry-after"] * 1000
-      );
-    }
-    return Promise.reject(error);
-  }
-);
 
 const MONGOOSE_URI = process.env.MONGOOSE_URI,
   OPENSEA_API_KEY = process.env.OPENSEA_API_KEY,
@@ -56,11 +31,14 @@ let notifications = [],
   let events = [];
 
   cron.schedule("*/1 * * * *", async () => {
+    events = [
+      ...new Map(events.map((item) => [item.identifier, item])).values(),
+    ];
     let i = events.length;
     console.log("Pre Events: ", events);
     while (i--) {
       await axios.post(`${process.env.DISCORD_HOOK}`, {
-        content: `${events[i]}`,
+        content: `${events[i].msg}`,
       });
 
       events.splice(i, 1);
@@ -78,20 +56,21 @@ let notifications = [],
 
       let contract = item.payload.item.permalink.split("/")[5];
       if (contracts.includes(contract)) {
-        let matches = notifications.filter(
-          (notification) => notification.contract == contract
-        );
-        let listPrice =
-          item.payload.base_price /
-          Math.pow(10, item.payload.payment_token.decimals);
-        matches.forEach((notification) => {
-          if (listPrice < notification.price) {
-            console.dir(item, { depth: null });
-            events.push(`${contract}: ${listPrice}`);
+        let listPrice = getPrice(item);
+        notifications.forEach((notification) => {
+          if (
+            notification.contract == contract &&
+            listPrice.tokenPrice < notification.price
+          ) {
+            events.push({
+              identifier: `${notification._id}`,
+              msg: `${contract}: ${listPrice.tokenPrice}`,
+              listPrice,
+              ...item,
+              ...notification,
+            });
           }
         });
-
-        console.log("Found Match: ", contract);
       }
     } catch (error) {
       console.log("Got Error");
@@ -99,3 +78,14 @@ let notifications = [],
     }
   });
 })();
+
+function getPrice(item) {
+  let tokenPrice =
+    item.payload.base_price / Math.pow(10, item.payload.payment_token.decimals);
+
+  return {
+    token: item.payload.payment_token.symbol,
+    tokenPrice,
+    usdPrice: tokenPrice * item.payload.payment_token.usd_price,
+  };
+}
